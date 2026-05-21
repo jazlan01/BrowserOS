@@ -35,7 +35,7 @@ index e1424aa52cbf6..aa49d245cc034 100644
    protocol::Response GetWindowBounds(
        int window_id,
        std::unique_ptr<protocol::Browser::Bounds>* out_bounds) override;
-@@ -41,6 +57,108 @@ class BrowserHandler : public protocol::Browser::Backend {
+@@ -41,6 +57,123 @@ class BrowserHandler : public protocol::Browser::Backend {
    protocol::Response AddPrivacySandboxEnrollmentOverride(
        const std::string& in_url) override;
  

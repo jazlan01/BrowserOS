@@ -2,7 +2,7 @@ diff --git a/chrome/browser/devtools/chrome_devtools_manager_delegate.h b/chrome
 index a37b46861fb3d..af1e0e2602c88 100644
 --- a/chrome/browser/devtools/chrome_devtools_manager_delegate.h
 +++ b/chrome/browser/devtools/chrome_devtools_manager_delegate.h
-@@ -73,6 +73,9 @@ class ChromeDevToolsManagerDelegate : public content::DevToolsManagerDelegate,
+@@ -73,6 +73,17 @@ class ChromeDevToolsManagerDelegate : public content::DevToolsManagerDelegate,
    std::string GetTargetTitle(content::WebContents* web_contents) override;
    std::optional<bool> ShouldReportAsTabTarget(
        content::WebContents* web_contents) override;

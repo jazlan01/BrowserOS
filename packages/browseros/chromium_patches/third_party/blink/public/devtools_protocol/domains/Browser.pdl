@@ -244,7 +244,7 @@ index 6015a94554c21..43dd32ff0983d 100644
    experimental type PermissionType extends string
      enum
        ar
-@@ -294,6 +522,28 @@ domain Browser
+@@ -294,6 +522,45 @@ domain Browser
        # position and size are returned.
        Bounds bounds
  

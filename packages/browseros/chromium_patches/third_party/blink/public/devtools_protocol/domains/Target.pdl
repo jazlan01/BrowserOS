@@ -15,7 +15,7 @@ index 8d8ead638ece0..57f63cbaa0879 100644
 
    # A filter used by target query/discovery/auto-attach operations.
    experimental type FilterEntry extends object
-@@ -106,6 +112,13 @@ domain Target
+@@ -106,9 +112,15 @@ domain Target
    command attachToTarget
      parameters
        TargetID targetId
