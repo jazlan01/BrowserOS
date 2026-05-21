@@ -1,6 +1,14 @@
 import { z } from 'zod'
 import { defineToolWithCategory } from './framework'
 
+function matchesOrigin(url: string, origin: string): boolean {
+  try {
+    return new URL(url).origin === origin
+  } catch {
+    return false
+  }
+}
+
 const pageParam = z.number().describe('Page ID (from list_pages)')
 const defineNavigationTool = defineToolWithCategory('navigation')
 const pageInfoSchema = z.object({
@@ -25,7 +33,23 @@ export const get_active_page = defineNavigationTool({
   input: z.object({}),
   output: z.object({ page: pageInfoSchema }),
   handler: async (_args, ctx, response) => {
-    const page = await ctx.browser.getActivePage()
+    let page = await ctx.browser.getActivePage()
+    if (ctx.assignedOrigin) {
+      const pages = await ctx.browser.listPages()
+      const originPage =
+        page && matchesOrigin(page.url, ctx.assignedOrigin)
+          ? page
+          : pages.find((p) =>
+              matchesOrigin(p.url, ctx.assignedOrigin as string),
+            )
+      if (!originPage) {
+        response.error(
+          `No active page found for origin ${ctx.assignedOrigin}. Open a tab for this origin first.`,
+        )
+        return
+      }
+      page = originPage
+    }
     if (!page) {
       response.error('No active page found.')
       return
@@ -46,7 +70,13 @@ export const list_pages = defineNavigationTool({
     count: z.number(),
   }),
   handler: async (_args, ctx, response) => {
-    const pages = await ctx.browser.listPages()
+    let pages = await ctx.browser.listPages()
+
+    if (ctx.assignedOrigin) {
+      pages = pages.filter((p) =>
+        matchesOrigin(p.url, ctx.assignedOrigin as string),
+      )
+    }
 
     if (pages.length === 0) {
       response.text('No pages open.')
@@ -98,6 +128,15 @@ export const navigate_page = defineNavigationTool({
         'Cannot navigate the origin tab in new-tab mode — this would destroy the chat UI. Use `new_page` to open a background tab instead.',
       )
       return
+    }
+
+    if (ctx.assignedOrigin && args.action === 'url' && args.url) {
+      if (!matchesOrigin(args.url, ctx.assignedOrigin)) {
+        response.error(
+          `Origin policy violation: this agent is scoped to ${ctx.assignedOrigin}. Cannot navigate to ${args.url}.`,
+        )
+        return
+      }
     }
 
     switch (args.action) {
@@ -154,6 +193,12 @@ export const new_page = defineNavigationTool({
     windowId: z.number().optional(),
   }),
   handler: async (args, ctx, response) => {
+    if (ctx.assignedOrigin && !matchesOrigin(args.url, ctx.assignedOrigin)) {
+      response.error(
+        `Origin policy violation: this agent is scoped to ${ctx.assignedOrigin}. Cannot open ${args.url}.`,
+      )
+      return
+    }
     const pageId = await ctx.browser.newPage(args.url, {
       hidden: args.hidden ? true : undefined,
       background: args.background !== false,

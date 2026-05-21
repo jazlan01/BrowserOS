@@ -12,6 +12,22 @@ index 8d8ead638ece0..57f63cbaa0879 100644
 +      # Browser window id containing the tab. Present when tabId is present
 +      # and the tab is in a window.
 +      experimental optional Browser.WindowID windowId
- 
+
    # A filter used by target query/discovery/auto-attach operations.
    experimental type FilterEntry extends object
+@@ -106,6 +112,13 @@ domain Target
+   command attachToTarget
+     parameters
+       TargetID targetId
+       # Enables "flat" access to the session via specifying sessionId attribute in the commands.
+       # We plan to make this the default, deprecate non-flattened mode,
+       # and eventually retire it. See crbug.com/991325.
+       optional boolean flatten
++      # Optional BrowserOS agent origin scope token (from Browser.createAgentOriginScope).
++      # When present, the browser process enforces that the target's committed
++      # origin matches the scope before creating any DevTools session.
++      # Attachment is rejected with AgentOriginScope.Violation if origins differ.
++      # This enforcement happens in C++ before any page content reaches the agent.
++      experimental optional string agentOriginScopeToken
+     returns
+       # Id assigned to the session.

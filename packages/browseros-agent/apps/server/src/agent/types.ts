@@ -53,4 +53,9 @@ export interface ResolvedAgentConfig {
   browserosId?: string
   /** Tool approval configuration — which categories require human approval. */
   toolApprovalConfig?: ToolApprovalConfig
+  /** If set, restricts this agent to a single origin (e.g. "https://mail.google.com").
+   *  All browser tools that target pages outside this origin will be blocked. */
+  assignedOrigin?: string
+  /** If true, this is a coordinator agent — browser tools are omitted in favour of delegate_to_origin_agent. */
+  isCoordinator?: boolean
 }

@@ -270,6 +270,25 @@ index 6015a94554c21..43dd32ff0983d 100644
 +      # Browser window id that contains the tab.
 +      WindowID windowId
 +
++  # Create an agent origin scope. Returns an opaque token that enforces
++  # origin policy when passed as agentOriginScopeToken in Target.attachToTarget.
++  # The browser process rejects attachment before any content is returned if
++  # the target's committed origin does not match the scope.
++  experimental command createAgentOriginScope
++    parameters
++      # The origin to allow, e.g. "https://mail.google.com".
++      # Must be a valid serialized origin (scheme + host + optional port).
++      string origin
++    returns
++      # Opaque scope token — pass as agentOriginScopeToken in Target.attachToTarget.
++      string scopeToken
++
++  # Revoke a previously created agent origin scope token.
++  experimental command revokeAgentOriginScope
++    parameters
++      # The scope token returned by createAgentOriginScope.
++      string scopeToken
++
    # Set position and/or size of the browser window.
    experimental command setWindowBounds
      parameters

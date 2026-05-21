@@ -12,6 +12,9 @@ index 30bd52d09c3fc..5ef348c475174 100644
  #include <vector>
  
 +#include "base/check.h"
++#include "base/containers/flat_map.h"
++#include "base/no_destructor.h"
++#include "base/uuid.h"
  #include "base/functional/bind.h"
 +#include "base/memory/raw_ptr.h"
  #include "base/memory/ref_counted_memory.h"
@@ -1421,4 +1424,53 @@ index 30bd52d09c3fc..5ef348c475174 100644
 +
 +  *out_group = BuildTabGroupInfo(target_bwi, new_gid);
 +  return Response::Success();
++}
++
++// ─── Agent origin scope (BrowserOS origin isolation) ────────────────────────
++
++// static
++base::flat_map<std::string, std::string>&
++BrowserHandler::GetScopeRegistry() {
++  static base::NoDestructor<base::flat_map<std::string, std::string>> registry;
++  return *registry;
++}
++
++// static
++std::optional<std::string> BrowserHandler::LookupScopeOrigin(
++    const std::string& scope_token) {
++  auto& reg = GetScopeRegistry();
++  auto it = reg.find(scope_token);
++  if (it == reg.end()) return std::nullopt;
++  return it->second;
++}
++
++protocol::Response BrowserHandler::CreateAgentOriginScope(
++    const std::string& in_origin,
++    std::string* out_scope_token) {
++  // Validate that the input is a serialized origin (scheme + host).
++  GURL origin_url(in_origin);
++  if (!origin_url.is_valid() || !origin_url.has_scheme() ||
++      !origin_url.has_host()) {
++    return protocol::Response::InvalidParams(
++        "Invalid origin '" + in_origin +
++        "': must be a valid serialized origin, e.g. \"https://mail.google.com\"");
++  }
++  // The serialized origin should match the input exactly (no path/query).
++  std::string expected = origin_url.scheme() + "://" + origin_url.host();
++  if (origin_url.has_port()) {
++    expected += ":" + origin_url.port();
++  }
++  if (expected != in_origin) {
++    return protocol::Response::InvalidParams(
++        "Origin must not include path or query. Expected: '" + expected + "'");
++  }
++  *out_scope_token = base::Uuid::GenerateRandomV4().AsLowercaseString();
++  GetScopeRegistry()[*out_scope_token] = in_origin;
++  return protocol::Response::Success();
++}
++
++protocol::Response BrowserHandler::RevokeAgentOriginScope(
++    const std::string& in_scope_token) {
++  GetScopeRegistry().erase(in_scope_token);
++  return protocol::Response::Success();
 +}

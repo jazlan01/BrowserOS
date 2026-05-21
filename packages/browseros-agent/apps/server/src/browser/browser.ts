@@ -142,7 +142,18 @@ export class Browser {
 
   // --- Session management ---
 
-  private async resolveSession(page: number): Promise<ProtocolApi> {
+  // Active origin scope token set by the tool framework during scoped agent execution.
+  // All resolveSession calls during this window will pass the token to Target.attachToTarget.
+  private activeOriginScopeToken: string | undefined
+
+  setActiveOriginScope(token: string | undefined): void {
+    this.activeOriginScopeToken = token
+  }
+
+  private async resolveSession(
+    page: number,
+    agentOriginScopeToken?: string,
+  ): Promise<ProtocolApi> {
     let info = this.pages.get(page)
     if (!info) {
       await this.listPages()
@@ -152,21 +163,32 @@ export class Browser {
       throw new Error(
         `Unknown page ${page}. Use list_pages to see available pages.`,
       )
-    const sessionId = await this.attachToPage(info.targetId, page)
+    const sessionId = await this.attachToPage(
+      info.targetId,
+      page,
+      agentOriginScopeToken ?? this.activeOriginScopeToken,
+    )
     return this.cdp.session(sessionId)
   }
 
   private async attachToPage(
     targetId: string,
     pageId: number,
+    agentOriginScopeToken?: string,
   ): Promise<string> {
     const cached = this.sessions.get(targetId)
     if (cached) return cached
 
-    const result = await this.cdp.Target.attachToTarget({
+    const attachParams: Record<string, unknown> = {
       targetId,
       flatten: true,
-    })
+    }
+    if (agentOriginScopeToken) {
+      attachParams.agentOriginScopeToken = agentOriginScopeToken
+    }
+    const result = await this.cdp.Target.attachToTarget(
+      attachParams as Parameters<typeof this.cdp.Target.attachToTarget>[0],
+    )
 
     const sessionId = result.sessionId
     const session = this.cdp.session(sessionId)
@@ -249,6 +271,27 @@ export class Browser {
 
   getTabIdForPage(pageId: number): number | undefined {
     return this.pages.get(pageId)?.tabId
+  }
+
+  async createAgentOriginScope(origin: string): Promise<string> {
+    const result = await (
+      this.cdp.Browser as unknown as {
+        createAgentOriginScope(params: {
+          origin: string
+        }): Promise<{ scopeToken: string }>
+      }
+    ).createAgentOriginScope({ origin })
+    return result.scopeToken
+  }
+
+  async revokeAgentOriginScope(scopeToken: string): Promise<void> {
+    await (
+      this.cdp.Browser as unknown as {
+        revokeAgentOriginScope(params: { scopeToken: string }): Promise<void>
+      }
+    )
+      .revokeAgentOriginScope({ scopeToken })
+      .catch(() => {})
   }
 
   getPageInfo(pageId: number): PageInfo | undefined {

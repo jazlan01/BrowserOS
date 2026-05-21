@@ -61,6 +61,7 @@ export class ChatService {
       workingDir: request.userWorkingDir,
       supportsImages: request.supportsImages,
       chatMode: request.mode === 'chat',
+      isCoordinator: request.mode === 'coordinator',
       isScheduledTask: request.isScheduledTask,
       origin: request.origin,
       declinedApps: request.declinedApps,

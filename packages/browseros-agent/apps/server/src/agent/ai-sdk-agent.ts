@@ -26,6 +26,7 @@ import { metrics } from '../lib/metrics'
 import { isSoulBootstrap, readSoul } from '../lib/soul'
 import { buildSkillsCatalog } from '../skills/catalog'
 import { loadSkills } from '../skills/loader'
+import { delegate_to_origin_agent } from '../tools/delegate-to-origin-agent'
 import { buildFilesystemToolSet } from '../tools/filesystem/build-toolset'
 import type { ToolContext } from '../tools/framework'
 import { buildMemoryToolSet } from '../tools/memory/build-toolset'
@@ -37,7 +38,7 @@ import {
   getMessageNormalizationOptions,
   normalizeMessagesForModel,
 } from './message-normalization'
-import { buildSystemPrompt } from './prompt'
+import { buildCoordinatorSystemPrompt, buildSystemPrompt } from './prompt'
 import { createLanguageModel } from './provider-factory'
 import { buildBrowserToolSet } from './tool-adapter'
 import type { ResolvedAgentConfig } from './types'
@@ -103,23 +104,59 @@ export class AiSdkAgent {
         originPageId,
       },
       aclRules: config.aclRules,
+      assignedOrigin: config.resolvedConfig.assignedOrigin,
+      providerConfig: config.resolvedConfig.isCoordinator
+        ? config.resolvedConfig
+        : undefined,
+      registry: config.resolvedConfig.isCoordinator
+        ? config.registry
+        : undefined,
     }
-    const allBrowserTools = buildBrowserToolSet(
-      config.registry,
-      toolContext,
-      config.resolvedConfig.toolApprovalConfig,
-    )
-    const browserTools = config.resolvedConfig.chatMode
-      ? Object.fromEntries(
-          Object.entries(allBrowserTools).filter(([name]) =>
-            CHAT_MODE_ALLOWED_TOOLS.has(name),
-          ),
+
+    let browserTools: ToolSet
+    if (config.resolvedConfig.isCoordinator) {
+      // Coordinator agents only get the delegation tool — no direct browser access
+      const { tool } = await import('ai')
+      browserTools = {
+        [delegate_to_origin_agent.name]: tool({
+          description: delegate_to_origin_agent.description,
+          inputSchema: delegate_to_origin_agent.input,
+          execute: async (params) => {
+            const { ToolResponse } = await import('../tools/response')
+            const response = new ToolResponse()
+            await delegate_to_origin_agent.handler(
+              params,
+              toolContext,
+              response,
+            )
+            return response.build(config.browser)
+          },
+        }),
+      }
+      logger.info(
+        'Coordinator mode: browser tools replaced with delegate_to_origin_agent',
+      )
+    } else {
+      const allBrowserTools = buildBrowserToolSet(
+        config.registry,
+        toolContext,
+        config.resolvedConfig.toolApprovalConfig,
+      )
+      browserTools = config.resolvedConfig.chatMode
+        ? Object.fromEntries(
+            Object.entries(allBrowserTools).filter(([name]) =>
+              CHAT_MODE_ALLOWED_TOOLS.has(name),
+            ),
+          )
+        : allBrowserTools
+      if (config.resolvedConfig.chatMode) {
+        logger.info(
+          'Chat mode enabled, restricting to read-only browser tools',
+          {
+            allowedTools: Array.from(CHAT_MODE_ALLOWED_TOOLS),
+          },
         )
-      : allBrowserTools
-    if (config.resolvedConfig.chatMode) {
-      logger.info('Chat mode enabled, restricting to read-only browser tools', {
-        allowedTools: Array.from(CHAT_MODE_ALLOWED_TOOLS),
-      })
+      }
     }
 
     // Get Klavis tools from shared background handle (no per-session connection).
@@ -198,42 +235,47 @@ export class AiSdkAgent {
 
     if (
       config.resolvedConfig.isScheduledTask ||
-      config.resolvedConfig.chatMode
+      config.resolvedConfig.chatMode ||
+      config.resolvedConfig.isCoordinator
     ) {
       delete tools.suggest_schedule
       delete tools.suggest_app_connection
     }
 
-    // Build system prompt with optional section exclusions
-    const excludeSections: string[] = []
-    if (
-      config.resolvedConfig.isScheduledTask ||
-      config.resolvedConfig.chatMode
-    ) {
-      excludeSections.push('nudges')
+    // Build system prompt
+    let instructions: string
+    if (config.resolvedConfig.isCoordinator) {
+      instructions = buildCoordinatorSystemPrompt()
+    } else {
+      const excludeSections: string[] = []
+      if (
+        config.resolvedConfig.isScheduledTask ||
+        config.resolvedConfig.chatMode
+      ) {
+        excludeSections.push('nudges')
+      }
+      const soulContent = await readSoul()
+      const isBootstrap = await isSoulBootstrap()
+
+      const skills = await loadSkills()
+      const skillsCatalog =
+        skills.length > 0 ? buildSkillsCatalog(skills) : undefined
+
+      instructions = buildSystemPrompt({
+        userSystemPrompt: config.resolvedConfig.userSystemPrompt,
+        exclude: excludeSections,
+        isScheduledTask: config.resolvedConfig.isScheduledTask,
+        scheduledTaskPageId: config.browserContext?.activeTab?.pageId,
+        workspaceDir: config.resolvedConfig.workingDir,
+        soulContent,
+        isSoulBootstrap: isBootstrap,
+        chatMode: config.resolvedConfig.chatMode,
+        connectedApps: config.browserContext?.enabledMcpServers,
+        declinedApps: config.resolvedConfig.declinedApps,
+        skillsCatalog,
+        origin: config.resolvedConfig.origin,
+      })
     }
-    const soulContent = await readSoul()
-    const isBootstrap = await isSoulBootstrap()
-
-    // Load skills catalog for prompt injection
-    const skills = await loadSkills()
-    const skillsCatalog =
-      skills.length > 0 ? buildSkillsCatalog(skills) : undefined
-
-    const instructions = buildSystemPrompt({
-      userSystemPrompt: config.resolvedConfig.userSystemPrompt,
-      exclude: excludeSections,
-      isScheduledTask: config.resolvedConfig.isScheduledTask,
-      scheduledTaskPageId: config.browserContext?.activeTab?.pageId,
-      workspaceDir: config.resolvedConfig.workingDir,
-      soulContent,
-      isSoulBootstrap: isBootstrap,
-      chatMode: config.resolvedConfig.chatMode,
-      connectedApps: config.browserContext?.enabledMcpServers,
-      declinedApps: config.resolvedConfig.declinedApps,
-      skillsCatalog,
-      origin: config.resolvedConfig.origin,
-    })
 
     // Configure compaction for context window management
     const compactionPrepareStep = createCompactionPrepareStep({

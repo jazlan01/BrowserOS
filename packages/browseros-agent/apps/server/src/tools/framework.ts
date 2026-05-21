@@ -3,8 +3,10 @@ import { resolve } from 'node:path'
 import type { ToolApprovalCategoryId } from '@browseros/shared/constants/tool-approval'
 import type { AclRule } from '@browseros/shared/types/acl'
 import type { z } from 'zod'
+import type { ResolvedAgentConfig } from '../agent/types'
 import type { Browser } from '../browser/browser'
 import { ToolResponse, type ToolResult } from './response'
+import type { ToolRegistry } from './tool-registry'
 
 export interface ToolDefinition {
   name: string
@@ -36,6 +38,17 @@ export type ToolContext = {
   directories: ToolDirectories
   session?: ToolSessionContext
   aclRules?: AclRule[]
+  /** If set, this agent is scoped to a single origin (e.g. "https://mail.google.com").
+   *  All page-targeting tools will be blocked if the target page's origin doesn't match. */
+  assignedOrigin?: string
+  /** Chromium-level scope token from Browser.createAgentOriginScope.
+   *  Passed to Target.attachToTarget so the browser process enforces origin
+   *  matching before any CDP session is created. Defense-in-depth with assignedOrigin. */
+  agentOriginScopeToken?: string
+  /** Provider config — passed into coordinator context so the delegate tool can spawn sub-agents. */
+  providerConfig?: ResolvedAgentConfig
+  /** Tool registry — passed into coordinator context for sub-agent tool set construction. */
+  registry?: ToolRegistry
 }
 
 export function resolveWorkingPath(
@@ -100,6 +113,29 @@ export async function executeTool(
     return response.toResult()
   }
 
+  if (ctx.assignedOrigin) {
+    const pageId = (args as Record<string, unknown>).page
+    if (typeof pageId === 'number') {
+      const pageInfo = ctx.browser.getPageInfo(pageId)
+      if (pageInfo?.url) {
+        try {
+          const pageOrigin = new URL(pageInfo.url).origin
+          if (pageOrigin !== ctx.assignedOrigin) {
+            response.error(
+              `Origin policy violation: this agent is scoped to ${ctx.assignedOrigin} but the target page is ${pageOrigin}. Only tabs from the assigned origin may be accessed.`,
+            )
+            return response.toResult()
+          }
+        } catch {
+          response.error(
+            `Origin policy violation: cannot determine origin for page ${pageId}.`,
+          )
+          return response.toResult()
+        }
+      }
+    }
+  }
+
   if (ctx.aclRules?.length) {
     const { checkAcl } = await import('./acl/acl-guard')
     const check = await checkAcl(
@@ -128,11 +164,22 @@ export async function executeTool(
     }
   }
 
+  // Activate Chromium-level origin scope for this tool call if set.
+  // This ensures Target.attachToTarget carries the scope token, enforcing
+  // origin matching in the browser process before any session is created.
+  if (ctx.agentOriginScopeToken) {
+    ctx.browser.setActiveOriginScope(ctx.agentOriginScopeToken)
+  }
+
   try {
     await tool.handler(args, ctx, response)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     response.error(`Internal error in ${tool.name}: ${message}`)
+  } finally {
+    if (ctx.agentOriginScopeToken) {
+      ctx.browser.setActiveOriginScope(undefined)
+    }
   }
 
   const result = await response.build(ctx.browser)

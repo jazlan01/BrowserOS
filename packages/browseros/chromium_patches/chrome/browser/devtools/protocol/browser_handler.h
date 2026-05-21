@@ -141,6 +141,21 @@ index e1424aa52cbf6..aa49d245cc034 100644
 +      std::optional<int> index,
 +      std::unique_ptr<protocol::Browser::TabGroupInfo>* out_group) override;
 +
++  // Agent origin scope API (BrowserOS origin isolation)
++  protocol::Response CreateAgentOriginScope(
++      const std::string& in_origin,
++      std::string* out_scope_token) override;
++  protocol::Response RevokeAgentOriginScope(
++      const std::string& in_scope_token) override;
++
++  // Looks up the allowed origin for a given scope token.
++  // Called by ChromeDevToolsManagerDelegate::HandleCommand to validate
++  // Target.attachToTarget calls before any DevTools session is created.
++  static std::optional<std::string> LookupScopeOrigin(
++      const std::string& scope_token);
++
   private:
++  static base::flat_map<std::string, std::string>& GetScopeRegistry();
++
    base::flat_set<std::string> contexts_with_overridden_permissions_;
    std::string target_id_;
